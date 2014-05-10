@@ -59,6 +59,10 @@
 #include <grp.h>
 #include <unordered_map>
 #include <api/sys/prctl.h>
+#include <api/sys/stat.h>
+#include <api/sys/vfs.h>
+#include <api/sys/types.h>
+#include <api/unistd.h>
 
 #define __LC_LAST 13
 
@@ -236,7 +240,44 @@ LFS64(posix_fadvise);
 
 int posix_fallocate(int fd, off_t offset, off_t len)
 {
-    return ENOSYS;
+    struct stat st;
+    struct statfs f;
+
+    /* check limits */
+    if (offset < 0 || len <= 0)
+        return EINVAL;
+    if (offset + len < 0)
+        return EFBIG;
+
+    /* fd should point to a regular file */
+    if (fstat(fd,&st) != 0)
+        return EBADF;
+    if (S_ISFIFO(st.st_mode))
+        return EPIPE;
+    if (! S_ISREG(st.st_mode))
+        return ENODEV;
+
+    /* need block size for performance */
+    if (fstatfs(fd,&f) != 0)
+        return errno;
+    if (f.f_bsize == 0)
+	f.f_bsize = 512;
+
+    /* write something to each block */
+    for (offset += (len - 1) % f.f_bsize; len > 0; offset += f.f_bsize) {
+        len -= f.f_bsize;
+	if (offset < st.st_size) {
+	    unsigned char c;
+	    ssize_t rsize = pread(fd, &c, 1, offset);
+	    if (rsize < 0)
+	        return errno;
+	    else if (rsize == 1 && c != 0)
+		continue; 
+	}
+	if (pwrite(fd, "", 1, offset) != 1)
+	    return errno;
+    }
+    return 0;
 }
 LFS64(posix_fallocate);
 
