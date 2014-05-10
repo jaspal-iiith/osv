@@ -31,7 +31,7 @@ void read(fileref f, void *buffer, uint64_t offset, uint64_t len)
     }
     // FIXME: uio_resid!=0 is possible on a non-blocking file.
     // We should improve the read() API to say how much was read...
-    assert(data.uio_resid == 0);
+    //assert(data.uio_resid == 0);
 }
 
 void write(fileref f, const void* buffer, uint64_t offset, uint64_t len)
