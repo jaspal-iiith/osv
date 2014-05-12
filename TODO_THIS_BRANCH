@@ -1,0 +1,10 @@
+To really implement posix_fallocate on a COW FS such as ZFS is really hard.
+Some pointers:
+http://austingroupbugs.net/view.php?id=684
+
+An example on how it could be implemented:
+adilger says:
+"It is potentially difficult to meaningfully implement fallocate() for ZFS, or any true COW filesystem. The intent of fallocate is to pre-allocate/reserve space for later use, but with a COW filesystem the pre-allocated blocks cannot be overwritten without allocating new blocks, writing into the new blocks, and releasing the old blocks (if not pinned by snapshots). In all cases, having fallocated blocks (with some new flag that marks them as zeroed) cannot be any better than simply reserving some blocks out of those available for the pool, and somehow crediting a dnode with the ability to allocate from those reserved blocks."
+
+Ryao gives a basic idea on how it could be implemented:
+"We would need per file reservations. It is doable. Just store an amount of reserved space in the dnode and have a per dataset sum. Each change needs to do atomic decrement/increment to the dataset value."
