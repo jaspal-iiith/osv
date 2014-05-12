@@ -82,6 +82,8 @@ class syminfo_resolver(object):
         infosym = gdb.execute('info symbol 0x%x' % addr, False, True)
         func = infosym[:infosym.find(" + ")]
         sal = gdb.find_pc_line(addr)
+        filename = None
+        line = None
         try :
             # prefer (filename:line),
             filename = sal.symtab.filename
@@ -114,7 +116,7 @@ def symbol_formatter(src_addr):
     return ret
 
 def syminfo(addr):
-    return symbol_formatter(syminfo_resolver(addr))
+    return symbol_formatter(symbol_resolver(addr)[0])
 
 def translate(path):
     '''given a path, try to find it on the host OS'''
@@ -997,7 +999,7 @@ def set_leak(val):
 
 def show_leak():
     tracker = gdb.parse_and_eval('memory::tracker')
-    size_allocations = tracker['size_allocations']
+    size_allocations = to_int(tracker['size_allocations'])
     allocations = tracker['allocations']
     # Build a list of allocations to be sorted lexicographically by call chain
     # and summarize allocations with the same call chain:
@@ -1015,7 +1017,7 @@ def show_leak():
         addr = ulong(a['addr'])
         if addr == 0 :
             continue
-        nbacktrace = a['nbacktrace']
+        nbacktrace = to_int(a['nbacktrace'])
         backtrace = a['backtrace']
         callchain = []
         for j in range(nbacktrace) :
