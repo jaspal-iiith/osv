@@ -280,6 +280,7 @@ tests += tests/tst-shm.so
 tests += tests/tst-align.so
 tests += tests/misc-tcp-close-without-reading.so
 tests += tests/tst-sigwait.so
+tests += tests/tst-sampler.so
 
 tests/hello/Hello.class: javabase=tests/hello
 
@@ -777,6 +778,7 @@ objects += core/net_channel.o
 objects += core/demangle.o
 objects += core/async.o
 objects += core/net_trace.o
+objects += core/sampler.o
 
 include $(src)/fs/build.mk
 include $(src)/libc/build.mk
