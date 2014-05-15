@@ -269,6 +269,7 @@ tests += tests/misc-urandom.so
 tests += tests/tst-commands.so
 tests += tests/tst-threadcomplete.so
 tests += tests/tst-timerfd.so
+tests += tests/tst-nway-merger.so
 tests += tests/tst-memmove.so
 tests += tests/tst-pthread-clock.so
 tests += tests/misc-procfs.so
@@ -899,7 +900,7 @@ $(src)/modules/tests/usr.manifest: $(src)/build.mk
 .PHONY: process-modules
 process-modules: bootfs.manifest.skel usr.manifest.skel $(src)/modules/tests/usr.manifest $(java-targets)
 	cd $(out)/module \
-	  && jdkbase=$(jdkbase) OSV_BASE=$(src) OSV_BUILD_PATH=$(out) $(src)/scripts/module.py --image-config $(image)
+	  && jdkbase=$(jdkbase) OSV_BASE=$(src) OSV_BUILD_PATH=$(out) MAKEFLAGS= $(src)/scripts/module.py --image-config $(image)
 
 $(out)/cmdline: process-modules
 $(out)/bootfs.manifest: process-modules
