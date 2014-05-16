@@ -25,6 +25,19 @@
 #include <stdlib.h>
 #include <unordered_map>
 #include <osv/wait_record.hh>
+#include <osv/preempt-lock.hh>
+
+// By taking the address of these functions, we force the compiler to generate
+// a symbol for it even when the function is inlined into all call sites. In a
+// situation like that, the symbol would simply not be generated. That seems to
+// be true even if we use "inline" instead of "static inline"
+#define OSV_SYM(module, name) void *__address##name __attribute__((visibility("hidden"))) = (void *)&module::name
+OSV_SYM(sched::thread, current);
+OSV_SYM(sched, get_preempt_counter);
+OSV_SYM(sched, preemptable);
+OSV_SYM(sched, preempt);
+OSV_SYM(sched, preempt_disable);
+OSV_SYM(sched, preempt_enable);
 
 __thread char* percpu_base;
 
@@ -553,6 +566,27 @@ std::unordered_map<unsigned long, thread *> thread_map
 
 static thread_runtime::duration total_app_time_exited(0);
 
+thread_runtime::duration thread::thread_clock() {
+    if (this == current()) {
+        WITH_LOCK (preempt_lock) {
+            // Inside preempt_lock, we are running and the scheduler can't
+            // intervene and change _total_cpu_time or _running_since
+            return _total_cpu_time +
+                    (osv::clock::uptime::now() - tcpu()->running_since);
+        }
+    } else {
+        // _total_cpu_time is the accurate answer, *unless* the thread is
+        // currently running on a different CPU. If it is running on a
+        // different CPU, correcting for the partial time slice is very tricky
+        // (and probably will require some additional memory ordering) so we
+        // will leave this as a TODO.
+        // FIXME: we assume reads/writes to _total_cpu_time are atomic.
+        // They are, but we should use std::atomic to guarantee that.
+        return _total_cpu_time;
+    }
+}
+
+
 std::chrono::nanoseconds osv_run_stats()
 {
     thread_runtime::duration total_app_time;
@@ -815,11 +849,6 @@ void thread::main()
     _func();
 }
 
-thread* thread::current()
-{
-    return sched::s_current;
-}
-
 void thread::wait()
 {
     trace_sched_wait();
@@ -990,39 +1019,6 @@ void thread_handle::wake()
         if (ds) {
             thread::wake_impl(ds);
         }
-    }
-}
-
-void preempt_disable()
-{
-    ++preempt_counter;
-}
-
-void preempt_enable()
-{
-    --preempt_counter;
-    if (preemptable() && need_reschedule && arch::irq_enabled()) {
-        cpu::schedule();
-    }
-}
-
-bool preemptable()
-{
-    return (!preempt_counter);
-}
-
-unsigned int get_preempt_counter()
-{
-    return preempt_counter;
-}
-
-void preempt()
-{
-    if (preemptable()) {
-        sched::cpu::current()->reschedule_from_interrupt(true);
-    } else {
-        // preempt_enable() will pick this up eventually
-        need_reschedule = true;
     }
 }
 

@@ -11,6 +11,7 @@
 
 #include "exceptions.hh"
 #include "gic.hh"
+#include "fault-fixup.hh"
 
 __thread exception_frame* current_interrupt_frame;
 class interrupt_table idt __attribute__((init_priority((int)init_prio::idt)));
@@ -90,14 +91,25 @@ void interrupt(exception_frame* frame)
     /* note that special values 1022 and 1023 are used for
        group 1 and spurious interrupts respectively. */
     if (irq >= gic::gic->nr_irqs) {
-        printf("special InterruptID %x detected!\n");
+        debug_early_u64("special InterruptID detected irq=", irq);
 
     } else {
         if (!idt.invoke_interrupt(irq))
-            printf("unhandled InterruptID %x!\n", irq);
+            debug_early_u64("unhandled InterruptID irq=", irq);
         gic::gic->end_irq(iar);
     }
 
     current_interrupt_frame = nullptr;
     sched::preempt();
+}
+
+bool fixup_fault(exception_frame* ef)
+{
+    fault_fixup v{ef->elr, 0};
+    auto ff = std::lower_bound(fault_fixup_start, fault_fixup_end, v);
+    if (ff != fault_fixup_end && ff->pc == ef->elr) {
+        ef->elr = ff->divert;
+        return true;
+    }
+    return false;
 }

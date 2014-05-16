@@ -222,6 +222,7 @@ private:
     timer& _tmr;
 };
 
+extern thread __thread * s_current;
 // thread_runtime is used to maintain the scheduler's view of the thread's
 // priority relative to other threads. It knows about a static priority of the
 // thread (allowing a certain thread to get more runtime than another threads)
@@ -404,7 +405,11 @@ public:
     static void sleep(std::chrono::duration<Rep, Period> duration);
     static void yield();
     static void exit() __attribute__((__noreturn__));
-    static thread* current() __attribute((no_instrument_function));
+#ifdef __OSV_CORE__
+    static inline thread* current() { return s_current; };
+#else
+    static thread* current();
+#endif
     stack_info get_stack_info();
     cpu* tcpu() const __attribute__((no_instrument_function));
     void join();
@@ -579,7 +584,7 @@ private:
     friend void init(std::function<void ()> cont);
 public:
     std::atomic<thread *> _joiner;
-    thread_runtime::duration thread_clock() { return _total_cpu_time; }
+    thread_runtime::duration thread_clock();
     bi::set_member_hook<> _runqueue_link;
     // see cpu class
     lockless_queue_link<thread> _wakeup_link;
@@ -718,11 +723,6 @@ private:
     friend struct cpu;
 };
 
-void preempt();
-void preempt_disable() __attribute__((no_instrument_function));
-void preempt_enable() __attribute__((no_instrument_function));
-bool preemptable() __attribute__((no_instrument_function));
-
 thread* current();
 
 // wait_for() support for predicates
@@ -786,6 +786,53 @@ inline void release(mutex_t* mtx)
         mutex_unlock(mtx);
     }
 }
+
+extern unsigned __thread preempt_counter;
+extern bool __thread need_reschedule;
+
+#ifdef __OSV_CORE__
+inline unsigned int get_preempt_counter()
+{
+    barrier();
+    return preempt_counter;
+}
+
+inline bool preemptable()
+{
+    return !get_preempt_counter();
+}
+
+inline void preempt()
+{
+    if (preemptable()) {
+        sched::cpu::current()->reschedule_from_interrupt(true);
+    } else {
+        // preempt_enable() will pick this up eventually
+        need_reschedule = true;
+    }
+}
+
+inline void preempt_disable()
+{
+    ++preempt_counter;
+    barrier();
+}
+
+inline void preempt_enable()
+{
+    barrier();
+    --preempt_counter;
+    if (preemptable() && need_reschedule && arch::irq_enabled()) {
+        cpu::schedule();
+    }
+}
+#else
+unsigned int get_preempt_counter();
+bool preemptable();
+void preempt();
+void preempt_disable();
+void preempt_enable();
+#endif
 
 class interruptible
 {

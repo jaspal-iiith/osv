@@ -31,7 +31,7 @@ image ?= default
 img_format ?= qcow2
 fs_size_mb ?= 10240
 local-includes =
-INCLUDES = $(local-includes) -I$(src)/arch/$(arch) -I$(src) -I$(src)/include
+INCLUDES = $(local-includes) -I$(src)/arch/$(arch) -I$(src) -I$(src)/include  -I$(src)/arch/common
 INCLUDES += -isystem $(src)/include/glibc-compat
 
 glibcbase = $(src)/external/$(arch)/glibc.bin
@@ -82,6 +82,20 @@ libc/%.o: source-dialects =
 
 kernel-defines = -D_KERNEL $(source-dialects)
 
+# This play the same role as "_KERNEL", but _KERNEL unfortunately is too
+# overloaded. A lot of files will expect it to be set no matter what, specially
+# in headers. "userspace" inclusion of such headers is valid, and lacking
+# _KERNEL will make them fail to compile. That is specially true for the BSD
+# imported stuff like ZFS commands.
+#
+# To add something to the kernel build, you can write for your object:
+#
+#   mydir/*.o COMMON += <MY_STUFF>
+#
+# To add something that will *not* be part of the main kernel, you can do:
+#
+#   mydir/*.o EXTRA_FLAGS = <MY_STUFF>
+EXTRA_FLAGS = -D__OSV_CORE__
 COMMON = $(autodepend) -g -Wall -Wno-pointer-arith $(CFLAGS_WERROR) -Wformat=0 -Wno-format-security \
 	-D __BSD_VISIBLE=1 -U _FORTIFY_SOURCE -fno-stack-protector $(INCLUDES) \
 	$(kernel-defines) \
@@ -89,7 +103,7 @@ COMMON = $(autodepend) -g -Wall -Wno-pointer-arith $(CFLAGS_WERROR) -Wformat=0 -
 	-include $(src)/compiler/include/intrinsics.hh \
 	$(do-sys-includes) \
 	$(arch-cflags) $(conf-opt) $(acpi-defines) $(tracing-flags) \
-	$(configuration) -nostdinc -D__OSV__ -D__XEN_INTERFACE_VERSION__="0x00030207"
+	$(configuration) -nostdinc -D__OSV__ -D__XEN_INTERFACE_VERSION__="0x00030207" $(EXTRA_FLAGS)
 
 tracing-flags-0 =
 tracing-flags-1 = -finstrument-functions -finstrument-functions-exclude-file-list=c++,trace.cc,trace.hh,align.hh
@@ -186,7 +200,7 @@ q-adjust-deps = $(call very-quiet, $(adjust-deps))
 
 tests/%.o: COMMON += -fPIC -DBOOST_TEST_DYN_LINK
 
-%.so: COMMON += -fPIC -shared
+%.so: EXTRA_FLAGS = -fPIC -shared
 %.so: %.o
 	$(makedir)
 	$(q-build-so)
@@ -196,6 +210,9 @@ autodepend = -MD -MT $@ -MP
 
 do-sys-includes = $(foreach inc, $(sys-includes), -isystem $(inc))
 
+ifeq ($(arch),aarch64)
+boost-tests :=
+else
 boost-tests := tests/tst-rename.so
 boost-tests += tests/tst-vfs.so
 boost-tests += tests/tst-libc-locking.so
@@ -211,9 +228,17 @@ boost-tests += tests/tst-bsd-tcp1.so
 boost-tests += tests/tst-async.so
 boost-tests += tests/tst-rcu-list.so
 boost-tests += tests/tst-tcp-listen.so
+endif
 
+ifeq ($(arch),aarch64)
+java_tests :=
+else
 java_tests := tests/hello/Hello.class
+endif
 
+ifeq ($(arch),aarch64)
+tests :=
+else
 tests := tests/tst-pthread.so tests/tst-ramdisk.so
 tests += tests/tst-vblk.so tests/bench/bench.jar tests/reclaim/reclaim.jar
 tests += tests/tst-bsd-evh.so tests/misc-bsd-callout.so
@@ -282,10 +307,15 @@ tests += tests/tst-align.so
 tests += tests/misc-tcp-close-without-reading.so
 tests += tests/tst-sigwait.so
 tests += tests/tst-sampler.so
+endif
 
 tests/hello/Hello.class: javabase=tests/hello
 
-java-targets = java-jars java/java.so
+ifeq ($(arch),aarch64)
+java-targets :=
+else
+java-targets := java-jars java/java.so
+endif
 
 java-jars:
 	$(call quiet, cd $(src)/java && mvn package -q -DskipTests=true, MVN $@)
@@ -296,6 +326,11 @@ tools := tools/ifconfig/ifconfig.so
 tools += tools/route/lsroute.so
 tools += tools/mkfs/mkfs.so
 tools += tools/cpiod/cpiod.so
+
+ifeq ($(arch),aarch64)
+tools += tests/tst-hello.so
+cmdline = tests/tst-hello.so
+endif
 
 ifeq ($(arch),x64)
 
@@ -489,14 +524,12 @@ bsd += bsd/sys/dev/xen/netfront/netfront.o
 bsd += bsd/sys/dev/xen/blkfront/blkfront.o
 endif
 
-ifeq ($(arch),x64)
 bsd += bsd/sys/dev/random/hash.o
 bsd += bsd/sys/dev/random/randomdev_soft.o
 bsd += bsd/sys/dev/random/yarrow.o
 bsd += bsd/sys/dev/random/random_harvestq.o
 bsd += bsd/sys/dev/random/harvest.o
 bsd += bsd/sys/dev/random/live_entropy_sources.o
-endif
 
 bsd/sys/%.o: COMMON += -Wno-sign-compare -Wno-narrowing -Wno-write-strings -Wno-parentheses -Wno-unused-but-set-variable
 
@@ -675,6 +708,9 @@ drivers += drivers/clockevent.o
 drivers += drivers/ramdisk.o
 drivers += core/elf.o
 drivers += java/jvm_balloon.o
+drivers += java/java_api.o
+drivers += drivers/random.o
+drivers += drivers/zfs.o
 
 ifeq ($(arch),x64)
 drivers += $(libtsm)
@@ -697,14 +733,11 @@ drivers += drivers/acpi.o
 drivers += drivers/hpet.o
 drivers += drivers/xenfront.o drivers/xenfront-xenbus.o drivers/xenfront-blk.o
 drivers += drivers/pvpanic.o
-drivers += drivers/random.o
 drivers += drivers/ahci.o
 drivers += drivers/ide.o
 drivers += drivers/pci.o
 drivers += drivers/scsi-common.o
 drivers += drivers/vmw-pvscsi.o
-drivers += drivers/zfs.o
-drivers += java/java_api.o
 endif # x64
 
 ifeq ($(arch),aarch64)
@@ -848,17 +881,12 @@ osv.vmdk osv.vdi:
 
 $(jni): INCLUDES += -I /usr/lib/jvm/java/include -I /usr/lib/jvm/java/include/linux/
 
-ifeq ($(arch),aarch64)
-bootfs.bin:
-	touch bootfs.bin
-else
 bootfs.bin: scripts/mkbootfs.py $(java-targets) $(out)/bootfs.manifest $(tests) $(java_tests) $(tools) \
 		tests/testrunner.so \
 		zpool.so zfs.so
 	$(call quiet, $(src)/scripts/mkbootfs.py -o $@ -d $@.d -m $(out)/bootfs.manifest \
 		-D jdkbase=$(jdkbase) -D gccbase=$(gccbase) -D \
 		glibcbase=$(glibcbase) -D miscbase=$(miscbase), MKBOOTFS $@)
-endif
 
 bootfs.o: bootfs.bin
 
