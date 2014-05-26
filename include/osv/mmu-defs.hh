@@ -9,6 +9,12 @@
 #define MMU_DEFS_HH
 
 #include <stdint.h>
+#include <atomic>
+#include <osv/rcu.hh>
+
+struct exception_frame;
+
+struct exception_frame;
 
 namespace mmu {
 
@@ -78,6 +84,7 @@ public:
     inline phys next_pt_addr() const;
     inline u64 next_pt_pfn() const;
     inline bool sw_bit(unsigned off) const;
+    inline bool rsvd_bit(unsigned off) const;
 
     inline void set_valid(bool v);
     inline void set_writable(bool v);
@@ -87,6 +94,7 @@ public:
     inline void set_addr(phys addr, bool large);
     inline void set_pfn(u64 pfn, bool large);
     inline void set_sw_bit(unsigned off, bool v);
+    inline void set_rsvd_bit(unsigned off, bool v);
 
     inline void mod_addr(phys addr) {
         set_addr(addr, large());
@@ -117,31 +125,37 @@ bool is_page_fault_insn(unsigned int err);
 bool is_page_fault_write(unsigned int err);
 bool is_page_fault_write_exclusive(unsigned int err);
 
+bool fast_sigsegv_check(uintptr_t addr, exception_frame* ef);
+
 /* a pointer to a pte mapped by hardware.
    The arch must implement change_perm for this class. */
 class hw_ptep {
+    typedef osv::rcu_ptr<pt_element> pt_ptr;
 public:
-    hw_ptep(const hw_ptep& a) : p(a.p) {}
-    pt_element read() const { return *p; }
-    void write(pt_element pte) { *const_cast<volatile u64*>(&p->x) = pte.x; }
+    hw_ptep(const hw_ptep& a) : p(a.release()) {}
+    void operator=(const hw_ptep& a) {
+        p.assign(a.release());
+    }
+    pt_element read() const { return *release(); }
+    pt_element ll_read() const { return *p.read(); }
+    void write(pt_element pte) { reinterpret_cast<pt_ptr*>(release())->assign(reinterpret_cast<pt_element*>(pte.x)); }
 
     pt_element exchange(pt_element newval) {
-        std::atomic<u64> *x = reinterpret_cast<std::atomic<u64>*>(&p->x);
+        std::atomic<u64> *x = reinterpret_cast<std::atomic<u64>*>(&release()->x);
         return pt_element(x->exchange(newval.x));
     }
     bool compare_exchange(pt_element oldval, pt_element newval) {
-        std::atomic<u64> *x = reinterpret_cast<std::atomic<u64>*>(&p->x);
+        std::atomic<u64> *x = reinterpret_cast<std::atomic<u64>*>(&release()->x);
         return x->compare_exchange_strong(oldval.x, newval.x, std::memory_order_relaxed);
     }
-    hw_ptep at(unsigned idx) { return hw_ptep(p + idx); }
+    hw_ptep at(unsigned idx) { return hw_ptep(release() + idx); }
     static hw_ptep force(pt_element* ptep) { return hw_ptep(ptep); }
     // no longer using this as a page table
-    pt_element* release() const { return p; }
-    bool operator==(const hw_ptep& a) const noexcept { return p == a.p; }
+    pt_element* release() const { return p.read_by_owner(); }
+    bool operator==(const hw_ptep& a) const noexcept { return release() == a.release(); }
 private:
     hw_ptep(pt_element* ptep) : p(ptep) {}
-    pt_element* p;
-    friend class hw_pte_ref;
+    pt_ptr p;
 };
 
 }

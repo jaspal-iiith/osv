@@ -13,6 +13,7 @@
 #include <osv/interrupt.hh>
 #include <osv/migration-lock.hh>
 #include <osv/prio.hh>
+#include "exceptions.hh"
 
 void page_fault(exception_frame *ef)
 {
@@ -40,6 +41,8 @@ void page_fault(exception_frame *ef)
 }
 
 namespace mmu {
+
+uint8_t phys_bits = max_phys_bits, virt_bits = 52;
 
 void flush_tlb_local() {
     // TODO: we can use page_table_root instead of read_cr3(), can be faster
@@ -136,6 +139,10 @@ bool is_page_fault_write(unsigned int error_code) {
     return error_code & page_fault_write;
 }
 
+bool is_page_fault_rsvd(unsigned int error_code) {
+    return error_code & page_fault_rsvd;
+}
+
 /* Glauber Costa: if page faults because we are trying to execute code here,
  * we shouldn't be closing the balloon. We should [...] despair.
  * So by checking only for == page_fault_write, we are guaranteed to close
@@ -149,4 +156,24 @@ bool is_page_fault_write_exclusive(unsigned int error_code) {
     return error_code == page_fault_write;
 }
 
+bool is_page_fault_prot_write(unsigned int error_code) {
+    return (error_code & (page_fault_write | page_fault_prot)) == (page_fault_write | page_fault_prot);
+}
+
+bool fast_sigsegv_check(uintptr_t addr, exception_frame* ef)
+{
+    if (is_page_fault_rsvd(ef->get_error())) {
+        return true;
+    }
+
+    // if page is present, but write protected without cow bit set
+    // it means that this address belong to PROT_READ vma, so no need
+    // to search vma to verify permission
+    if (is_page_fault_prot_write(ef->get_error())) {
+        auto pte = virt_to_pte_rcu(addr);
+        return !pte_is_cow(pte);
+    }
+
+    return false;
+}
 }

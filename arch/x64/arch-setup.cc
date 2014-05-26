@@ -144,6 +144,14 @@ void arch_setup_free_memory()
     time = (time << 32) | omb.tsc_disk_done;
     boot_time.arrays[1] = { "disk read (real mode)", time };
 
+    auto c = processor::cpuid(0x80000000);
+    if (c.a >= 0x80000008) {
+        c = processor::cpuid(0x80000008);
+        mmu::phys_bits = c.a & 0xff;
+        mmu::virt_bits = (c.a >> 8) & 0xff;
+        assert(mmu::phys_bits <= mmu::max_phys_bits);
+    }
+
     setup_temporary_phys_map();
 
     // setup all memory up to 1GB.  We can't free any more, because no
@@ -189,8 +197,12 @@ void arch_setup_free_memory()
     });
 }
 
-void arch_setup_tls(thread_control_block *tcb)
+void arch_setup_tls(void *tls, void *start, size_t size)
 {
+    struct thread_control_block *tcb;
+    memcpy(tls, start, size);
+    tcb = (struct thread_control_block *)(tls + size);
+    tcb->self = tcb;
     processor::wrmsr(msr::IA32_FS_BASE, reinterpret_cast<uint64_t>(tcb));
 }
 

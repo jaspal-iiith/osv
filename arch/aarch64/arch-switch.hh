@@ -22,14 +22,36 @@ namespace sched {
 
 void thread::switch_to()
 {
-    abort();
+    thread* old = current();
+    asm volatile ("msr tpidr_el0, %0; isb; " :: "r"(_tcb) : "memory");
+
+    asm volatile("\n"
+                 "str x29,     %0  \n"
+                 "mov x2, sp       \n"
+                 "adr x1, 1f       \n" /* address of label */
+                 "stp x2, x1,  %1  \n"
+
+                 "ldp x29, x0, %2  \n"
+                 "ldp x2, x1,  %3  \n"
+
+                 "mov sp, x2       \n"
+                 "blr x1           \n"
+
+                 "1:               \n" /* label */
+                 :
+                 : "Q"(old->_state.fp), "Ump"(old->_state.sp),
+                   "Ump"(this->_state.fp), "Ump"(this->_state.sp)
+                 : "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7", "x8",
+                   "x9", "x10", "x11", "x12", "x13", "x14", "x15",
+                   "x16", "x17", "x18", "x30", "memory");
 }
 
 void thread::switch_to_first()
 {
-    barrier();
-    arch_setup_tls(_tcb);
-    barrier();
+    asm volatile ("msr tpidr_el0, %0; isb; " :: "r"(_tcb) : "memory");
+
+    /* check that the tls variable preempt_counter is correct */
+    assert(sched::get_preempt_counter() == 1);
 
     s_current = this;
     current_cpu = _detached_state->_cpu;
@@ -67,17 +89,17 @@ void thread::init_stack()
 void thread::setup_tcb()
 {
     assert(tls.size);
+    void* p = malloc(sched::tls.size + 1024);
+    memset(p, 0, sched::tls.size + 1024);
 
-    void* p = malloc(sched::tls.size + sizeof(*_tcb));
-    memcpy(p, sched::tls.start, sched::tls.size);
-    _tcb = static_cast<thread_control_block*>(p + tls.size);
-    _tcb->self = _tcb;
-    _tcb->tls_base = p;
+    _tcb = (thread_control_block *)p;
+    _tcb[0].tls_base = &_tcb[1];
+    memcpy(&_tcb[1], sched::tls.start, sched::tls.size);
 }
 
 void thread::free_tcb()
 {
-    free(_tcb->tls_base);
+    free(_tcb);
 }
 
 void thread_main_c(thread* t)
