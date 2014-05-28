@@ -44,6 +44,7 @@ libc += ctype/wcwidth.o
 
 libc += dirent/alphasort.o
 libc += dirent/scandir.o
+libc += dirent/fdopendir.o
 
 libc += env/__environ.o
 libc += env/clearenv.o
@@ -342,6 +343,7 @@ libc += misc/getsubopt.o
 libc += misc/realpath.o
 libc += misc/backtrace.o
 libc += misc/uname.o
+libc += misc/lockf.o
 
 libc += multibyte/btowc.o
 libc += multibyte/internal.o
@@ -376,6 +378,7 @@ libc += network/inet_pton.o
 libc += network/inet_ntop.o
 libc += network/proto.o
 libc += network/if_indextoname.o
+libc += network/gai_strerror.o
 
 libc += prng/rand.o
 libc += prng/random.o
