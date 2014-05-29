@@ -619,19 +619,6 @@ public:
     bool tlb_flush_needed(void) {return do_flush;}
 };
 
-class count_maps:
-    public vma_operation<allocate_intermediate_opt::no,
-                         skip_empty_opt::yes, account_opt::yes> {
-public:
-    void small_page(hw_ptep ptep, uintptr_t offset) {
-        this->account(mmu::page_size);
-    }
-    bool huge_page(hw_ptep ptep, uintptr_t offset) {
-        this->account(mmu::huge_page_size);
-        return true;
-    }
-};
-
 class virt_to_phys_map :
         public page_table_operation<allocate_intermediate_opt::no, skip_empty_opt::yes,
         descend_opt::yes, once_opt::yes, split_opt::no> {
@@ -1021,6 +1008,18 @@ void vcleanup(void* addr, size_t size)
     }
 }
 
+static void depopulate(void* addr, size_t length)
+{
+    length = align_up(length, mmu::page_size);
+    auto start = reinterpret_cast<uintptr_t>(addr);
+    auto range = vma_list.equal_range(addr_range(start, start + length), vma::addr_compare());
+    for (auto i = range.first; i != range.second; ++i) {
+        i->operate_range(unpopulate<>(i->page_ops()), reinterpret_cast<void*>(start), std::min(length, i->size()));
+        start += i->size();
+        length -= i->size();
+    }
+}
+
 error advise(void* addr, size_t size, int advice)
 {
     WITH_LOCK(vma_list_mutex) {
@@ -1028,7 +1027,7 @@ error advise(void* addr, size_t size, int advice)
             return make_error(ENOMEM);
         }
         if (advice == advise_dontneed) {
-            vdepopulate(addr, size);
+            depopulate(addr, size);
             return no_error();
         }
         return make_error(EINVAL);
