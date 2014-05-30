@@ -13,6 +13,9 @@ PARAM_IMAGE="--override-image"
 PARAM_VERSION="--override-version"
 PARAM_REGIONS="--override-regions"
 PARAM_SMALL="--small-instances"
+PARAM_MODULES="--modules-list"
+
+MODULES_LIST=default
 
 print_help() {
  cat <<HLPEND
@@ -50,6 +53,7 @@ This script receives following command line arguments:
     $PARAM_INSTANCE - do not rebuild, upload existing image and stop afer instance creation - useful for development phase
     $PARAM_REGIONS <regions list> - replicate to specified regions only
     $PARAM_SMALL - create AMI suitable for small and micro instances
+    $PARAM_MODULES <modules list> - list of modules to build (incompatible with $PARAM_IMAGE and $PARAM_INSTANCE)
 
 HLPEND
 }
@@ -87,6 +91,10 @@ do
       SMALL_INSTANCE=1
       shift
       ;;
+    "$PARAM_MODULES")
+      MODULES_LIST=$2
+      shift 2
+      ;;
     "$PARAM_HELP")
       print_help
       exit 0
@@ -113,7 +121,6 @@ export AWS_ACCESS_KEY=$AWS_ACCESS_KEY_ID
 export AWS_SECRET_KEY=$AWS_SECRET_ACCESS_KEY
 
 export AWS_DEFAULT_REGION=us-east-1
-OSV_INITIAL_ZONE="${AWS_DEFAULT_REGION}a"
 
 if test x"$SMALL_INSTANCE" = x""; then
 
@@ -160,7 +167,7 @@ import_osv_volume() {
  $EC2_HOME/bin/ec2-import-volume $OSV_VOLUME \
                                  -f raw \
                                  -b $OSV_BUCKET \
-                                 -z $OSV_INITIAL_ZONE \
+                                 -z `get_availability_zone` \
                                  $EC2_CREDENTIALS | tee /dev/tty | ec2_response_value IMPORTVOLUME TaskId
 }
 
@@ -193,7 +200,7 @@ wait_import_completion() {
 }
 
 launch_template_instance() {
- $EC2_HOME/bin/ec2-run-instances $TEMPLATE_AMI_ID --availability-zone $OSV_INITIAL_ZONE --instance-type $TEMPLATE_INSTANCE_TYPE | tee /dev/tty | ec2_response_value INSTANCE INSTANCE
+ $EC2_HOME/bin/ec2-run-instances $TEMPLATE_AMI_ID --availability-zone `get_availability_zone` --instance-type $TEMPLATE_INSTANCE_TYPE | tee /dev/tty | ec2_response_value INSTANCE INSTANCE
 }
 
 get_instance_state() {
@@ -339,6 +346,15 @@ list_regions() {
 
 }
 
+get_availability_zone() {
+
+ if test x"$OSV_AVAILABILITY_ZONE" = x""; then
+     OSV_AVAILABILITY_ZONE=`$EC2_HOME/bin/ec2-describe-availability-zones | ec2_response_value AVAILABILITYZONE AVAILABILITYZONE | head -1`
+ fi
+
+ echo $OSV_AVAILABILITY_ZONE
+}
+
 list_additional_regions() {
 
  list_regions | grep -v $AWS_DEFAULT_REGION
@@ -427,12 +443,12 @@ BUCKET_CREATED=0
 
 while true; do
 
-    echo_progress Releasing version $OSV_VER
-    amend_rstatus Release status for version $OSV_VER
+    echo_progress Releasing version $OSV_VER \(modules $MODULES_LIST\)
+    amend_rstatus Release status for version $OSV_VER \(modules $MODULES_LIST\)
 
     if test x"$DONT_BUILD" != x"1"; then
         echo_progress Building from the scratch
-        make clean && git submodule update && make external && make -j `nproc` img_format=raw
+        make clean && git submodule update && make external && make -j `nproc` img_format=raw image=$MODULES_LIST
 
         if test x"$?" != x"0"; then
             handle_error Build failed.
