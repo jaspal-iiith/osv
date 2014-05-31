@@ -72,6 +72,8 @@
 #include "fs/fs.hh"
 #include "libc/libc.hh"
 
+#include <mntent.h>
+
 using namespace std;
 
 
@@ -1479,6 +1481,36 @@ ssize_t readlink(const char *pathname, char *buf, size_t bufsize)
     return -1;
 }
 
+TRACEPOINT(trace_vfs_fallocate, "%d %d 0x%x 0x%x", int, int, loff_t, loff_t);
+TRACEPOINT(trace_vfs_fallocate_ret, "");
+TRACEPOINT(trace_vfs_fallocate_err, "%d", int);
+
+int fallocate(int fd, int mode, loff_t offset, loff_t len)
+{
+    struct file *fp;
+    int error;
+
+    trace_vfs_fallocate(fd, mode, offset, len);
+    error = fget(fd, &fp);
+    if (error)
+        goto out_errno;
+
+    error = sys_fallocate(fp, mode, offset, len);
+    fdrop(fp);
+
+    if (error)
+        goto out_errno;
+    trace_vfs_fallocate_ret();
+    return 0;
+
+    out_errno:
+    trace_vfs_fallocate_err(error);
+    errno = error;
+    return -1;
+}
+
+LFS64(fallocate);
+
 TRACEPOINT(trace_vfs_utimes, "\"%s\"", const char*);
 TRACEPOINT(trace_vfs_utimes_ret, "");
 TRACEPOINT(trace_vfs_utimes_err, "%d", int);
@@ -1674,13 +1706,28 @@ extern "C" void mount_zfs_rootfs(void)
     if (ret)
         kprintf("failed to pivot root, error = %s\n", strerror(ret));
 
-    ret = sys_mount("", "/dev", "devfs", 0, NULL);
-    if (ret)
-        kprintf("failed to mount devfs, error = %s\n", strerror(ret));
+    auto ent = setmntent("/etc/fstab", "r");
+    if (!ent) {
+        return;
+    }
 
-    ret = sys_mount("", "/proc", "procfs", 0, NULL);
-    if (ret)
-        kprintf("failed to mount procfs, error = %s\n", strerror(ret));
+    struct mntent *m = nullptr;
+    while ((m = getmntent(ent)) != nullptr) {
+        if (!strcmp(m->mnt_dir, "/")) {
+            continue;
+        }
+
+        if ((m->mnt_opts != nullptr) && strcmp(m->mnt_opts, MNTOPT_DEFAULTS)) {
+            printf("Warning: opts %s, ignored for fs %s\n", m->mnt_opts, m->mnt_type);
+        }
+
+        // FIXME: Right now, ignoring mntops. In the future we may have an option parser
+        ret = sys_mount(m->mnt_fsname, m->mnt_dir, m->mnt_type, 0, NULL);
+        if (ret) {
+            printf("failed to mount %s, error = %s\n", m->mnt_type, strerror(ret));
+        }
+    } while (m != nullptr);
+    endmntent(ent);
 }
 
 extern "C" void unmount_rootfs(void)
