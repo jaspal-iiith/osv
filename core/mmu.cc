@@ -211,22 +211,6 @@ struct page_allocator {
     virtual ~page_allocator() {}
 };
 
-void debug_count_ptes(pt_element pte, int level, size_t &nsmall, size_t &nhuge)
-{
-    if (level<4 && !pte.valid()){
-        // nothing
-    } else if (pte.large()) {
-        nhuge++;
-    } else if (level==0){
-        nsmall++;
-    } else {
-        hw_ptep pt = follow(pte);
-        for(int i=0; i<pte_per_page; ++i) {
-            debug_count_ptes(pt.at(i).read(), level-1, nsmall, nhuge);
-        }
-    }
-}
-
 unsigned long all_vmas_size()
 {
     SCOPE_LOCK(vma_list_mutex);
@@ -524,6 +508,17 @@ public:
     unsigned nr_page_sizes(void) { return 1; }
 };
 
+class splithugepages : public vma_operation<allocate_intermediate_opt::no, skip_empty_opt::yes, account_opt::no> {
+public:
+    splithugepages() { }
+    void small_page(hw_ptep ptep, uintptr_t offset) {}
+    bool huge_page(hw_ptep ptep, uintptr_t offset) {
+        assert(0);
+        return false;
+    }
+    unsigned nr_page_sizes(void) { return 1; }
+};
+
 struct tlb_gather {
     static constexpr size_t max_pages = 20;
     struct tlb_page {
@@ -585,7 +580,7 @@ public:
     }
     bool huge_page(hw_ptep ptep, uintptr_t offset) {
         void* addr = phys_to_virt(ptep.read().addr(true));
-        if (_pops->unmap(addr, offset, ptep)) {
+        if (_pops->unmap(addr, huge_page_size, offset, ptep)) {
             do_flush = !_tlb_gather.push(addr, huge_page_size);
         } else {
             do_flush = true;
@@ -1020,6 +1015,21 @@ static void depopulate(void* addr, size_t length)
     }
 }
 
+static void nohugepage(void* addr, size_t length)
+{
+    length = align_up(length, mmu::page_size);
+    auto start = reinterpret_cast<uintptr_t>(addr);
+    auto range = vma_list.equal_range(addr_range(start, start + length), vma::addr_compare());
+    for (auto i = range.first; i != range.second; ++i) {
+        if (!i->has_flags(mmap_small)) {
+            i->update_flags(mmap_small);
+            i->operate_range(splithugepages(), reinterpret_cast<void*>(start), std::min(length, i->size()));
+        }
+        start += i->size();
+        length -= i->size();
+    }
+}
+
 error advise(void* addr, size_t size, int advice)
 {
     WITH_LOCK(vma_list_mutex) {
@@ -1028,6 +1038,9 @@ error advise(void* addr, size_t size, int advice)
         }
         if (advice == advise_dontneed) {
             depopulate(addr, size);
+            return no_error();
+        } else if (advice == advise_nohugepage) {
+            nohugepage(addr, size);
             return no_error();
         }
         return make_error(EINVAL);
