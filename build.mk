@@ -300,6 +300,7 @@ tests += tests/tst-truncate.so
 tests += $(boost-tests)
 tests += tests/misc-panic.so
 tests += tests/tst-utimes.so
+tests += tests/tst-futimesat.so
 tests += tests/misc-tcp.so
 tests += tests/tst-strerror_r.so
 tests += tests/misc-random.so
@@ -785,7 +786,6 @@ endif
 ifeq ($(arch),x64)
 objects += arch/x64/arch-trace.o
 objects += arch/x64/ioapic.o
-objects += arch/x64/math.o
 objects += arch/x64/apic.o
 objects += arch/x64/apic-clock.o
 objects += arch/x64/cpuid.o
@@ -796,6 +796,7 @@ objects += core/sampler.o
 objects += $(acpi)
 endif # x64
 
+objects += core/math.o
 objects += core/spinlock.o
 objects += core/lfmutex.o
 objects += core/rwlock.o
