@@ -42,7 +42,7 @@ termios tio = {
             /*VLNEXT*/0, /*VEOL2*/0},
 };
 
-ConsoleMultiplexer mux __attribute__((init_priority((int)init_prio::console)))
+console_multiplexer mux __attribute__((init_priority((int)init_prio::console)))
     (&tio, &arch_early_console);
 
 void write(const char *msg, size_t len)
@@ -113,19 +113,19 @@ static struct devops console_devops = {
     .devctl	= no_devctl,
 };
 
-struct driver console_driver = {
+struct driver console_drv = {
     .name	= "console",
     .devops	= &console_devops,
 };
 
-void console_driver_add(ConsoleDriver *driver)
+void console_driver_add(console_driver *driver)
 {
     mux.driver_add(driver);
 }
 
 void console_init()
 {
-    device_create(&console_driver, "console", D_CHR | D_TTY);
+    device_create(&console_drv, "console", D_CHR | D_TTY);
     mux.start();
 }
 
