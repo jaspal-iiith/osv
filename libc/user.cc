@@ -123,6 +123,29 @@ static struct group single_group = {
     username, password, getgid(), group_members
 };
 
+struct group *getgrnam(const char *name)
+{
+    if (!strcmp(name, single_group.gr_name)) {
+        return NULL;
+    }
+    return &single_group;
+}
+
+int
+getgrnam_r (const char *name, struct group *grp, char *buffer, size_t buflen,
+            struct group **result)
+{
+    if (!strcmp(name, single_group.gr_name)) {
+        *result = NULL;
+        return 0;
+    }
+
+    *grp = single_group;
+    *result = grp;
+
+    return 0;
+}
+
 int
 getgrgid_r (gid_t gid, struct group *grp, char *buffer, size_t buflen,
             struct group **result)
