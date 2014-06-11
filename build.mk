@@ -239,6 +239,9 @@ boost-tests += tests/tst-async.so
 boost-tests += tests/tst-rcu-list.so
 boost-tests += tests/tst-tcp-listen.so
 boost-tests += tests/tst-poll.so
+boost-tests += tests/tst-bitset-iter.so
+boost-tests += tests/tst-timer-set.so
+boost-tests += tests/tst-clock.so
 endif
 
 ifeq ($(arch),aarch64)
@@ -284,7 +287,7 @@ tests += tests/tst-remove.so
 tests += tests/misc-wake.so
 tests += tests/tst-epoll.so
 tests += tests/misc-lfring.so
-tests += tests/tst-fsx.so
+tests += tests/misc-fsx.so
 tests += tests/tst-sleep.so
 tests += tests/tst-resolve.so
 tests += tests/tst-except.so
@@ -327,6 +330,15 @@ tests += tests/misc-memcpy.so
 tests += tests/misc-free-perf.so
 tests += tests/tst-fallocate.so
 tests += tests/misc-printf.so
+tests += tests/libstatic-thread-variable.so tests/tst-static-thread-variable.so
+tests/tst-static-thread-variable.so: tests/libstatic-thread-variable.so
+tests/tst-static-thread-variable.so: COMMON += -L./tests -lstatic-thread-variable
+endif
+
+ifeq ($(arch),aarch64)
+lib_tests :=
+else
+lib_tests := tests/libstatic-thread-variable.so
 endif
 
 tests/hello/Hello.class: javabase=tests/hello
@@ -481,6 +493,7 @@ bsd += bsd/porting/kthread.o
 bsd += bsd/porting/mmu.o
 bsd += bsd/porting/pcpu.o
 bsd += bsd/porting/bus_dma.o
+bsd += bsd/porting/kobj.o
 bsd += bsd/sys/netinet/if_ether.o  
 bsd += bsd/sys/compat/linux/linux_socket.o  
 bsd += bsd/sys/compat/linux/linux_ioctl.o  
@@ -732,6 +745,7 @@ drivers += java/jvm_balloon.o
 drivers += java/java_api.o
 drivers += drivers/random.o
 drivers += drivers/zfs.o
+drivers += drivers/null.o
 
 ifeq ($(arch),x64)
 drivers += $(libtsm)
@@ -778,6 +792,7 @@ objects += arch/$(arch)/entry.o
 objects += arch/$(arch)/mmu.o
 objects += arch/$(arch)/exceptions.o
 objects += arch/$(arch)/dump.o
+objects += arch/$(arch)/arch-elf.o
 
 ifeq ($(arch),aarch64)
 objects += arch/$(arch)/arm-clock.o
@@ -966,6 +981,8 @@ $(src)/modules/tests/usr.manifest: $(src)/build.mk
 	@echo "  generating modules/tests/usr.manifest"
 	@cat $@.skel > $@
 	@echo $(tests) | tr ' ' '\n' | awk '{print "/" $$0 ": ./" $$0}' >> $@
+	@echo $(lib_tests) | tr ' ' '\n' | \
+		awk '{name=$$0; name=gensub(".*/([^/]*)", "\\1", name); print "/usr/lib/" name ": ./" $$0}' >> $@
 	@echo $(java_tests) | tr ' ' '\n' | \
 	    awk '{a=$$0; sub(".*/","",a); print "/java/" a ": ./" $$0}' >> $@
 

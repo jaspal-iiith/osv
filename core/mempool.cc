@@ -38,6 +38,8 @@ TRACEPOINT(trace_memory_malloc_mempool, "buf=%p, req_len=%d, alloc_len=%d,"
            " align=%d", void*, size_t, size_t, size_t);
 TRACEPOINT(trace_memory_malloc_large, "buf=%p, req_len=%d, alloc_len=%d,"
            " align=%d", void*, size_t, size_t, size_t);
+TRACEPOINT(trace_memory_malloc_page, "buf=%p, req_len=%d, alloc_len=%d,"
+           " align=%d", void*, size_t, size_t, size_t);
 TRACEPOINT(trace_memory_free, "buf=%p", void *);
 TRACEPOINT(trace_memory_realloc, "in=%p, newlen=%d, out=%p", void *, size_t, void *);
 TRACEPOINT(trace_memory_page_alloc, "page=%p", void*);
@@ -532,8 +534,14 @@ void reclaimer::wait_for_memory(size_t mem)
 static void* malloc_large(size_t size, size_t alignment)
 {
     auto requested_size = size;
-    size = (size + page_size - 1) & ~(page_size - 1);
-    size += page_size;
+    size_t offset;
+    if (alignment < page_size) {
+        offset = align_up(sizeof(page_range), alignment);
+    } else {
+        offset = page_size;
+    }
+    size += offset;
+    size = align_up(size, page_size);
 
     while (true) {
         WITH_LOCK(free_page_ranges_lock) {
@@ -565,7 +573,7 @@ static void* malloc_large(size_t size, size_t alignment)
                     }
                     on_alloc(size);
                     void* obj = ret_header;
-                    obj += page_size;
+                    obj += offset;
                     trace_memory_malloc_large(obj, requested_size, size,
                                               alignment);
                     return obj;
@@ -650,7 +658,7 @@ bool reclaimer_waiters::wake_waiters()
 // That means that this returning will only mean allocation may succeed, not
 // that it will.  Because of that, it is of extreme importance that callers
 // pass the exact amount of memory they are waiting for. So for instance, if
-// your allocation is 2Mb in size + a 4k header, "bytes" bellow should be 2Mb +
+// your allocation is 2Mb in size + a 4k header, "bytes" below should be 2Mb +
 // 4k, not 2Mb. Failing to do so could livelock the system, that would forever
 // wake up believing there is enough memory, when in reality there is not.
 void reclaimer_waiters::wait(size_t bytes)
@@ -741,7 +749,7 @@ void reclaimer::_do_reclaim()
         _shrinker_loop(target, [this] { return _oom_blocked.has_waiters(); });
 
         WITH_LOCK(free_page_ranges_lock) {
-            if (target > 0) {
+            if (target >= 0) {
                 // Wake up all waiters that are waiting and now have a chance to succeed.
                 // If we could not wake any, there is nothing really we can do.
                 if (!_oom_blocked.wake_waiters()) {
@@ -801,12 +809,13 @@ static void free_page_range(void *addr, size_t size)
 
 static void free_large(void* obj)
 {
-    free_page_range(static_cast<page_range*>(obj - page_size));
+    obj = align_down(obj - 1, page_size);
+    free_page_range(static_cast<page_range*>(obj));
 }
 
 static unsigned large_object_size(void *obj)
 {
-    obj -= page_size;
+    obj = align_down(obj - 1, page_size);
     auto header = static_cast<page_range*>(obj);
     return header->size;
 }
@@ -1101,21 +1110,25 @@ static inline void* std_malloc(size_t size, size_t alignment)
     // so need to increase the allocation size.
     auto requested_size = size;
     if (alignment > size) {
-        if (alignment <= memory::pool::max_object_size) {
+        if (alignment <= mmu::page_size) {
             size = alignment;
         } else {
-            size = std::max(size, memory::pool::max_object_size * 2);
+            size = std::max(size, mmu::page_size * 2);
         }
     }
 
-    if (size <= memory::pool::max_object_size) {
-        if (!smp_allocator) {
-            return memory::alloc_page() + memory::non_mempool_obj_offset;
-        }
+    if (size <= memory::pool::max_object_size && smp_allocator) {
         size = std::max(size, memory::pool::min_object_size);
         unsigned n = ilog2_roundup(size);
         ret = memory::malloc_pools[n].alloc();
+        ret = translate_mem_area(mmu::mem_area::main, mmu::mem_area::mempool,
+                                 ret);
         trace_memory_malloc_mempool(ret, requested_size, 1 << n, alignment);
+    } else if (size <= mmu::page_size) {
+        ret = mmu::translate_mem_area(mmu::mem_area::main, mmu::mem_area::page,
+                                       memory::alloc_page());
+        trace_memory_malloc_page(ret, requested_size, mmu::page_size,
+                                 alignment);
     } else {
         ret = memory::malloc_large(size, alignment);
     }
@@ -1137,10 +1150,17 @@ void* calloc(size_t nmemb, size_t size)
 
 static size_t object_size(void *object)
 {
-    if (reinterpret_cast<uintptr_t>(object) & (memory::page_size - 1)) {
-        return memory::pool::from_object(object)->get_size();
-    } else {
+    switch (mmu::get_mem_area(object)) {
+    case mmu::mem_area::main:
         return memory::large_object_size(object);
+    case mmu::mem_area::mempool:
+        object = mmu::translate_mem_area(mmu::mem_area::mempool,
+                                         mmu::mem_area::main, object);
+        return memory::pool::from_object(object)->get_size();
+    case mmu::mem_area::page:
+        return mmu::page_size;
+    default:
+        abort();
     }
 }
 
@@ -1170,13 +1190,19 @@ static inline void std_free(void* object)
         return;
     }
     memory::tracker_forget(object);
-    auto offset = reinterpret_cast<uintptr_t>(object) & (memory::page_size - 1);
-    if (offset == memory::non_mempool_obj_offset) {
-        memory::free_page(object - offset);
-    } else if (offset) {
+    switch (mmu::get_mem_area(object)) {
+    case mmu::mem_area::page:
+        object = mmu::translate_mem_area(mmu::mem_area::page,
+                                         mmu::mem_area::main, object);
+        return memory::free_page(object);
+    case mmu::mem_area::main:
+         return memory::free_large(object);
+    case mmu::mem_area::mempool:
+        object = mmu::translate_mem_area(mmu::mem_area::mempool,
+                                         mmu::mem_area::main, object);
         return memory::pool::from_object(object)->free(object);
-    } else {
-        return memory::free_large(object);
+    default:
+        abort();
     }
 }
 
@@ -1370,16 +1396,16 @@ void enable_debug_allocator()
 void* alloc_phys_contiguous_aligned(size_t size, size_t align)
 {
     assert(is_power_of_two(align));
-    // make use of the standard allocator returning properly aligned
+    // make use of the standard large allocator returning properly aligned
     // physically contiguous memory:
-    auto ret = std_malloc(size, align);
+    auto ret = malloc_large(size, align);
     assert (!(reinterpret_cast<uintptr_t>(ret) & (align - 1)));
     return ret;
 }
 
 void free_phys_contiguous_aligned(void* p)
 {
-    std_free(p);
+    free_large(p);
 }
 
 }

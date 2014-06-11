@@ -42,6 +42,7 @@
 #include <osv/uio.h>
 
 #include <bsd/sys/sys/queue.h>
+#include <osv/dentry.h>
 
 #ifdef __cplusplus
 
@@ -109,14 +110,16 @@ struct file {
 	virtual std::unique_ptr<mmu::file_vma> mmap(addr_range range, unsigned flags, unsigned perm, off_t offset) {
 	    throw make_error(ENODEV);
 	}
-	virtual bool map_page(uintptr_t offset, size_t size, mmu::hw_ptep ptep, mmu::pt_element pte, bool write, bool shared) { throw make_error(ENOSYS); }
-	virtual bool put_page(void *addr, uintptr_t offset, size_t size, mmu::hw_ptep ptep) { throw make_error(ENOSYS); }
+	virtual bool map_page(uintptr_t offset, mmu::hw_ptep<0> ptep, mmu::pt_element pte, bool write, bool shared) { throw make_error(ENOSYS); }
+	virtual bool map_page(uintptr_t offset, mmu::hw_ptep<1> ptep, mmu::pt_element pte, bool write, bool shared) { throw make_error(ENOSYS); }
+	virtual bool put_page(void *addr, uintptr_t offset, mmu::hw_ptep<0> ptep) { throw make_error(ENOSYS); }
+	virtual bool put_page(void *addr, uintptr_t offset, mmu::hw_ptep<1> ptep) { throw make_error(ENOSYS); }
 	virtual void sync(off_t start, off_t end) { throw make_error(ENOSYS); }
 
 	int		f_flags;	/* open flags */
 	int		f_count;	/* reference count, see below */
 	off_t		f_offset = 0;	/* current position in file */
-	struct dentry	*f_dentry = nullptr; /* dentry */
+	dentry_ref	f_dentry;	/* dentry */
 	void		*f_data;        /* file descriptor specific data */
 	filetype_t	f_type;		/* descriptor type */
 	TAILQ_HEAD(, poll_link) f_poll_list; /* poll request list */
@@ -143,6 +146,11 @@ struct special_file : public file {
     virtual int poll(int events) override;
     virtual int stat(struct stat* buf) override;
     virtual int chmod(mode_t mode) override;
+};
+
+struct tty_file : public special_file {
+    tty_file(unsigned flags, filetype_t type) :
+        special_file(flags, type) { }
 };
 
 #endif

@@ -29,7 +29,7 @@ class status_enum_class(object):
     pass
 status_enum = status_enum_class()
 
-phys_mem = 0xffffc00000000000
+phys_mem = 0xffff800000000000
 
 def pt_index(addr, level):
     return (addr >> (12 + 9 * level)) & 511
@@ -476,6 +476,22 @@ class osv_syms(gdb.Command):
                 print(path, hex(base))
                 load_elf(path, base)
             p += 1
+
+class osv_load_elf(gdb.Command):
+    def __init__(self):
+        gdb.Command.__init__(self, 'osv load-elf',
+                             gdb.COMMAND_USER, gdb.COMPLETE_NONE)
+    def invoke(self, arg, from_tty):
+        args_list = arg.split()
+        if len(args_list) != 2:
+            gdb.write('Usage: osv load-elf <host-path> <base-address>\n')
+            return
+        path = args_list[0]
+        base = int(args_list[1], 0)
+        if not os.path.exists(path):
+            gdb.write('Path not found: ' + path + '\n')
+            return
+        load_elf(path, base)
 
 class osv_info(gdb.Command):
     def __init__(self):
@@ -1258,6 +1274,7 @@ osv_waiters()
 osv_mmap()
 osv_zfs()
 osv_syms()
+osv_load_elf()
 osv_info()
 osv_info_threads()
 osv_info_callouts()
