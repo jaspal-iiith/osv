@@ -52,8 +52,8 @@ struct passwd *getpwnam(const char *name)
    return &single_user;
 }
 
-int getpwuid_r(uid_t uid, struct passwd *pwd,
-               char *buf, size_t buflen, struct passwd **result)
+static int getpw_r(const char *name, uid_t uid, struct passwd *pwd,
+                   char *buf, size_t buflen, struct passwd **result)
 {
     auto alloc = [&](int n) { auto tmp = buf; buf += n; return tmp; };
     auto save = [&](const char* s) { return strcpy(alloc(strlen(s) + 1), s); };
@@ -67,6 +67,18 @@ int getpwuid_r(uid_t uid, struct passwd *pwd,
     pwd->pw_shell = save(shell);
     *result = pwd;
     return 0;
+}
+
+int getpwnam_r(const char *name, struct passwd *pwd,
+               char *buf, size_t buflen, struct passwd **result)
+{
+    return getpw_r(name, 0, pwd, buf, buflen, result);
+}
+
+int getpwuid_r(uid_t uid, struct passwd *pwd,
+               char *buf, size_t buflen, struct passwd **result)
+{
+    return getpw_r(0, uid, pwd, buf, buflen, result);
 }
 
 struct passwd* getpwuid(uid_t uid)
@@ -90,7 +102,19 @@ int setuid(uid_t uid)
     return 0;
 }
 
+int seteuid(uid_t uid)
+{
+    assert(uid == 0);
+    return 0;
+}
+
 int setgid(gid_t gid)
+{
+    assert(gid == 0);
+    return 0;
+}
+
+int setegid(gid_t gid)
 {
     assert(gid == 0);
     return 0;
@@ -107,11 +131,34 @@ int setresuid(uid_t ruid, uid_t euid, uid_t suid)
         return -1;
     }
 }
+
+int setreuid(uid_t ruid, uid_t euid)
+{
+    if ( (ruid == (uid_t)-1 || ruid == 0) &&
+         (euid == (uid_t)-1 || euid == 0)) {
+        return 0;
+    } else {
+        errno = EPERM;
+        return -1;
+    }
+}
+
 int setresgid(gid_t rgid, gid_t egid, gid_t sgid)
 {
     if ( (rgid == (gid_t)-1 || rgid == 0) &&
          (egid == (gid_t)-1 || egid == 0) &&
          (sgid == (gid_t)-1 || sgid == 0)) {
+        return 0;
+    } else {
+        errno = EPERM;
+        return -1;
+    }
+}
+
+int setregid(gid_t rgid, gid_t egid)
+{
+    if ( (rgid == (uid_t)-1 || rgid == 0) &&
+         (egid == (uid_t)-1 || egid == 0)) {
         return 0;
     } else {
         errno = EPERM;
