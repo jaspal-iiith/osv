@@ -19,11 +19,13 @@ endif
 ifndef ARCH
   ARCH = $(host_arch)
 endif
+
+arch = $(ARCH)
+
 $(info build.mk:)
 $(info build.mk: building arch=$(arch), override with ARCH env)
 $(info build.mk: building build_env=$(build_env) gcc_lib_env=$(gcc_lib_env) cxx_lib_env=$(cxx_lib_env))
 $(info build.mk:)
-arch = $(ARCH)
 
 CROSS_PREFIX = $(if $(filter-out $(arch), $(host_arch)), $(arch)-linux-gnu-)
 
@@ -310,6 +312,7 @@ tests += tests/libstatic-thread-variable.so tests/tst-static-thread-variable.so
 tests/tst-static-thread-variable.so: tests/libstatic-thread-variable.so
 tests/tst-static-thread-variable.so: COMMON += -L./tests -lstatic-thread-variable
 tests += tests/misc-lock-perf.so
+tests += tests/tst-uio.so
 endif
 
 ifeq ($(arch),aarch64)
