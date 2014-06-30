@@ -215,6 +215,9 @@ libc += math/fminl.o
 libc += math/fmod.o
 libc += math/fmodf.o
 libc += math/fmodl.o
+libc += math/finite.o
+libc += math/finitef.o
+libc += math/finitel.o
 libc += math/frexp.o
 libc += math/frexpf.o
 libc += math/frexpl.o
@@ -645,6 +648,7 @@ libc += time/wcsftime.o
 
 libc += unistd/sleep.o
 libc += unistd/gethostname.o
+libc += unistd/sethostname.o
 libc += unistd/sync.o
 libc += unistd/getpgid.o
 libc += unistd/setpgid.o
