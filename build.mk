@@ -260,6 +260,7 @@ tests += tests/misc-ctxsw.so
 tests += tests/tst-readdir.so
 tests += tests/tst-read.so
 tests += tests/tst-symlink.so
+tests += tests/tst-eventfd.so
 tests += tests/tst-remove.so
 tests += tests/misc-wake.so
 tests += tests/tst-epoll.so
@@ -338,6 +339,7 @@ tools := tools/ifconfig/ifconfig.so
 tools += tools/route/lsroute.so
 tools += tools/mkfs/mkfs.so
 tools += tools/cpiod/cpiod.so
+tools += tools/uush/uush.so
 
 ifeq ($(arch),aarch64)
 tools += tests/tst-hello.so
