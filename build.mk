@@ -315,6 +315,8 @@ tests/tst-static-thread-variable.so: tests/libstatic-thread-variable.so
 tests/tst-static-thread-variable.so: COMMON += -L./tests -lstatic-thread-variable
 tests += tests/misc-lock-perf.so
 tests += tests/tst-uio.so
+tests += tests/tst-printf.so
+tests += tests/tst-pthread-affinity.so
 endif
 
 ifeq ($(arch),aarch64)
@@ -983,7 +985,7 @@ $(src)/modules/tests/usr.manifest: $(src)/build.mk
 .PHONY: process-modules
 process-modules: bootfs.manifest.skel usr.manifest.skel $(src)/modules/tests/usr.manifest $(java-targets)
 	cd module \
-	  && jdkbase=$(jdkbase) OSV_BASE=$(src) OSV_BUILD_PATH=$(out) MAKEFLAGS= $(src)/scripts/module.py --image-config $(image)
+	  && jdkbase=$(jdkbase) OSV_BASE=$(src) OSV_BUILD_PATH=$(out) MAKEFLAGS= $(src)/scripts/module.py build -c $(image)
 
 cmdline: process-modules
 bootfs.manifest: process-modules

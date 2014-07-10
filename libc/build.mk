@@ -348,6 +348,7 @@ libc += misc/backtrace.o
 libc += misc/uname.o
 libc += misc/lockf.o
 libc += misc/mntent.o
+libc += misc/__longjmp_chk.o
 
 libc += multibyte/btowc.o
 libc += multibyte/internal.o
@@ -658,6 +659,9 @@ libc += unistd/getpgrp.o
 libc += unistd/getppid.o
 libc += unistd/getsid.o
 libc += unistd/setsid.o
+
+libc += regex/fnmatch.o
+libc += regex/glob.o
 
 libc += pthread.o
 libc += libc.o
